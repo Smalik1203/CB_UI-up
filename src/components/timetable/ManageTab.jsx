@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Tag, Typography, Space, Button, Popconfirm, Tooltip, Select, Input, Dropdown, message
+  Card, Table, Tag, Typography, Space, Button, Popconfirm, Tooltip, message, Modal, Form, Select, Input, Empty
 } from 'antd';
 import {
   ClockCircleOutlined, BookOutlined, TeamOutlined, StopOutlined,
-  EditOutlined, PlusCircleOutlined, DeleteOutlined, MoreOutlined
+  EditOutlined, PlusCircleOutlined, DeleteOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { toMin, overlap } from '../../utils/time';
-// ⚠️ Adjust this path to your project
 import { supabase } from '../../config/supabaseClient';
 
 const { Text } = Typography;
@@ -24,30 +23,54 @@ export default function ManageTab({
   subjects = [],
   teachers = [],
   assignments = [],        // timetable_slots for that date
-  onOpenAssign,            // (slot_number) => void
+  onOpenAssign,            // (slot_number) => void  // not used now; we use internal modal
   onDeleteSlot             // (slot) => Promise<void>
 }) {
   const [messageApi, contextHolder] = message.useMessage();
+  const dateStr = useMemo(() => date.format('YYYY-MM-DD'), [date]);
 
   // ---------- Local overlay for instant UI after updates ----------
-  // key: timetable_slot.id -> { syllabus_item_id?, plan_text? }
+  // key: timetable_slot.id -> { syllabus_item_id?, plan_text?, subject_id?, teacher_id? }
   const [assignOverrides, setAssignOverrides] = useState(() => new Map());
 
   // ---------- Syllabi & chapters for this class ----------
   // subject_id -> syllabus_id
   const [syllabiBySubject, setSyllabiBySubject] = useState(() => new Map());
+  // syllabus_id -> subject_id (reverse)
+  const [subjectBySyllabus, setSubjectBySyllabus] = useState(() => new Map());
   // syllabus_id -> [{id, unit_no, title, status}]
   const [chaptersBySyllabus, setChaptersBySyllabus] = useState(() => new Map());
+  // chapter_id -> syllabus_id (for inference)
+  const [syllabusByChapter, setSyllabusByChapter] = useState(() => new Map());
 
-  // derive easy lookups
+  // ---------- Edit modal ----------
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editSlot, setEditSlot] = useState(null); // period row
+  const [form] = Form.useForm();
+
+  // ---------- helpers (snake/camel tolerant & inference) ----------
+  const resolvePeriodNumber = (a) => a?.period_number ?? a?.periodNumber ?? null;
+  const resolveSubjectId = (a) => {
+    const fromRow = a?.subject_id ?? a?.subjectId ?? (a?.id ? assignOverrides.get(a.id)?.subject_id : null);
+    if (fromRow) return fromRow;
+    const chId = a?.syllabus_item_id ?? a?.syllabusItemId;
+    if (!chId) return null;
+    const sylId = syllabusByChapter.get(chId);
+    if (!sylId) return null;
+    return subjectBySyllabus.get(sylId) ?? null;
+  };
+
   const assignmentBySlot = useMemo(() => {
     const m = new Map();
     assignments.forEach(a => {
       const patch = a?.id ? assignOverrides.get(a.id) : null;
-      m.set(a.period_number, patch ? { ...a, ...patch } : a);
+      const merged = patch ? { ...a, ...patch } : a;
+      const pn = resolvePeriodNumber(merged);
+      if (pn != null) m.set(pn, merged);
     });
     return m;
-  }, [assignments, assignOverrides]);
+  }, [assignments, assignOverrides]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const weekdayIdx = date.day();
   const dayBreaks = useMemo(
@@ -74,22 +97,26 @@ export default function ManageTab({
   useEffect(() => {
     if (!classId) {
       setSyllabiBySubject(new Map());
+      setSubjectBySyllabus(new Map());
       setChaptersBySyllabus(new Map());
+      setSyllabusByChapter(new Map());
       return;
     }
     (async () => {
       try {
-        // Get all syllabi for this class
+        // All syllabi for this class
         const { data: syll, error: syErr } = await supabase
           .from('syllabi')
           .select('id, subject_id')
           .eq('class_instance_id', classId);
         if (syErr) throw syErr;
 
-        const map = new Map();
+        const fwd = new Map();   // subject_id -> syllabus_id
+        const rev = new Map();   // syllabus_id -> subject_id
         const ids = [];
-        (syll || []).forEach(sy => { map.set(sy.subject_id, sy.id); ids.push(sy.id); });
-        setSyllabiBySubject(map);
+        (syll || []).forEach(sy => { fwd.set(sy.subject_id, sy.id); rev.set(sy.id, sy.subject_id); ids.push(sy.id); });
+        setSyllabiBySubject(fwd);
+        setSubjectBySyllabus(rev);
 
         if (ids.length) {
           const { data: items, error: itErr } = await supabase
@@ -101,14 +128,18 @@ export default function ManageTab({
           if (itErr) throw itErr;
 
           const group = new Map();
+          const ch2sy = new Map();
           (items || []).forEach(it => {
             const arr = group.get(it.syllabus_id) || [];
             arr.push(it);
             group.set(it.syllabus_id, arr);
+            ch2sy.set(it.id, it.syllabus_id);
           });
           setChaptersBySyllabus(group);
+          setSyllabusByChapter(ch2sy);
         } else {
           setChaptersBySyllabus(new Map());
+          setSyllabusByChapter(new Map());
         }
       } catch (e) {
         messageApi.error(e?.message || 'Failed loading chapters');
@@ -120,17 +151,15 @@ export default function ManageTab({
   // ---------- Realtime sync ----------
   useEffect(() => {
     if (!classId) return;
-    const dateStr = date.format('YYYY-MM-DD');
     const channel = supabase.channel(`rt-manage-${classId}-${dateStr}`);
 
-    // timetable_slots: reflect plan_text/syllabus_item_id changes happening elsewhere
+    // timetable_slots (reflect changes)
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'timetable_slots', filter: `class_instance_id=eq.${classId}` },
       payload => {
         const row = payload.new || payload.old;
         if (!row || row.class_date !== dateStr) return;
-        // overlay to reflect immediately
         setAssignOverrides(prev => {
           const next = new Map(prev);
           if (payload.eventType === 'DELETE') {
@@ -139,6 +168,8 @@ export default function ManageTab({
             next.set(row.id, {
               syllabus_item_id: row.syllabus_item_id ?? null,
               plan_text: row.plan_text ?? null,
+              subject_id: row.subject_id ?? (prev.get(row.id)?.subject_id ?? null),
+              teacher_id: row.teacher_id ?? (prev.get(row.id)?.teacher_id ?? null),
             });
           }
           return next;
@@ -146,7 +177,7 @@ export default function ManageTab({
       }
     );
 
-    // syllabus_items: reflect chapter status changes from Syllabus page
+    // syllabus_items (status updates from Syllabus page)
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'syllabus_items' },
@@ -157,7 +188,10 @@ export default function ManageTab({
           const next = new Map(prev);
           const arr = new Map((next.get(row.syllabus_id) || []).map(x => [x.id, x]));
           arr.set(row.id, { ...arr.get(row.id), ...row });
-          next.set(row.syllabus_id, Array.from(arr.values()).sort((a, b) => (a.unit_no - b.unit_no) || a.title.localeCompare(b.title)));
+          next.set(
+            row.syllabus_id,
+            Array.from(arr.values()).sort((a, b) => (a.unit_no - b.unit_no) || a.title.localeCompare(b.title))
+          );
           return next;
         });
       }
@@ -165,12 +199,13 @@ export default function ManageTab({
 
     channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [classId, date, messageApi]);
+  }, [classId, dateStr]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---------- Helpers ----------
+  // ---------- Names ----------
   const subjectName = (id) => subjects.find(s => s.id === id)?.subject_name || '—';
   const teacherName = (id) => teachers.find(t => t.id === id)?.full_name || '—';
 
+  // ---------- Chapters helpers ----------
   const chapterOptionsForSubject = (subject_id) => {
     const sid = syllabiBySubject.get(subject_id);
     if (!sid) return [];
@@ -181,7 +216,6 @@ export default function ManageTab({
       status: ch.status,
     }));
   };
-
   const chapterById = (subject_id, item_id) => {
     const sid = syllabiBySubject.get(subject_id);
     if (!sid || !item_id) return null;
@@ -189,75 +223,157 @@ export default function ManageTab({
     return arr.find(x => x.id === item_id) || null;
   };
 
-  async function upsertPlanText(assignRow, newText) {
-    if (!assignRow?.id) return;
-    // optimistic overlay
-    setAssignOverrides(prev => {
-      const next = new Map(prev);
-      next.set(assignRow.id, { ...(next.get(assignRow.id) || {}), plan_text: newText });
-      return next;
+  // ---------- Open edit modal ----------
+  const openEdit = (row) => {
+    const a = assignmentBySlot.get(row.slot_number);
+    const subjId = a ? resolveSubjectId(a) : null;
+    form.setFieldsValue({
+      subject_id: subjId || undefined,
+      teacher_id: (a?.teacher_id ?? a?.teacherId) || undefined,
+      syllabus_item_id: (a?.syllabus_item_id ?? a?.syllabusItemId) || undefined,
+      plan_text: (a?.plan_text ?? a?.planText) || '',
     });
-    const { error } = await supabase
-      .from('timetable_slots')
-      .update({ plan_text: newText })
-      .eq('id', assignRow.id);
-    if (error) messageApi.error(error.message || 'Failed to save description');
-  }
+    setEditSlot(row);
+    setEditOpen(true);
+  };
 
-  async function setChapter(assignRow, subject_id, syllabus_item_id) {
-    if (!assignRow?.id) {
-      messageApi.info('Assign subject/teacher first.');
-      return;
+  // ---------- Save edit (update by id or composite key) ----------
+  const saveEdit = async () => {
+    try {
+      const values = await form.validateFields();
+      const slotNumber = editSlot.slot_number;
+      const a = assignmentBySlot.get(slotNumber);
+      const patch = {
+        subject_id: values.subject_id || null,
+        teacher_id: values.teacher_id || null,
+        syllabus_item_id: values.syllabus_item_id || null,
+        plan_text: values.plan_text || null,
+      };
+      if (!patch.subject_id || !patch.teacher_id) {
+        messageApi.warning('Subject and Teacher are required.');
+        return;
+      }
+
+      setEditBusy(true);
+      if (a?.id) {
+        const { error, data } = await supabase
+          .from('timetable_slots')
+          .update(patch)
+          .eq('id', a.id)
+          .select('id, subject_id, teacher_id, syllabus_item_id, plan_text')
+          .single();
+        if (error) throw error;
+        setAssignOverrides(prev => {
+          const next = new Map(prev);
+          next.set(data.id, data);
+          return next;
+        });
+      } else {
+        const { error, data } = await supabase
+          .from('timetable_slots')
+          .update(patch)
+          .eq('class_instance_id', classId)
+          .eq('class_date', dateStr)
+          .eq('period_number', slotNumber)
+          .select('id, subject_id, teacher_id, syllabus_item_id, plan_text')
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.id) {
+          setAssignOverrides(prev => {
+            const next = new Map(prev);
+            next.set(data.id, data);
+            return next;
+          });
+        }
+      }
+      messageApi.success('Assignment saved');
+      setEditOpen(false);
+    } catch (e) {
+      if (e?.errorFields) {
+        // antd form validation
+        return;
+      }
+      messageApi.error(e?.message || 'Failed to save');
+    } finally {
+      setEditBusy(false);
     }
-    // optimistic overlay
-    setAssignOverrides(prev => {
-      const next = new Map(prev);
-      next.set(assignRow.id, { ...(next.get(assignRow.id) || {}), syllabus_item_id });
-      return next;
-    });
-    const { error } = await supabase
-      .from('timetable_slots')
-      .update({ syllabus_item_id })
-      .eq('id', assignRow.id);
-    if (error) {
-      messageApi.error(error.message || 'Failed to assign chapter');
-    } else {
-      messageApi.success('Chapter assigned');
+  };
+
+  // ---------- Create syllabus from modal ----------
+  const createSyllabus = async (subject_id) => {
+    try {
+      if (!subject_id) return;
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) throw new Error('Not signed in');
+      const { data: meRow, error: meErr } = await supabase
+        .from('users')
+        .select('id, school_code')
+        .eq('id', auth.user.id)
+        .single();
+      if (meErr || !meRow) throw meErr ?? new Error('User profile not found');
+
+      const { data, error } = await supabase
+        .from('syllabi')
+        .insert({
+          school_code: meRow.school_code,
+          class_instance_id: classId,
+          subject_id,
+          created_by: meRow.id,
+        })
+        .select('id')
+        .single();
+      if (error) {
+        if (error.code === '23505') {
+          messageApi.info('Syllabus already exists');
+        } else {
+          throw error;
+        }
+      } else {
+        messageApi.success('Syllabus created');
+      }
+
+      // refresh local cache
+      const { data: syll, error: syErr } = await supabase
+        .from('syllabi')
+        .select('id, subject_id')
+        .eq('class_instance_id', classId);
+      if (syErr) throw syErr;
+
+      const fwd = new Map(syll.map(sy => [sy.subject_id, sy.id]));
+      setSyllabiBySubject(fwd);
+
+      // if this subject now has a syllabus, load chapters
+      const sid = fwd.get(subject_id);
+      if (sid) {
+        const { data: items, error: itErr } = await supabase
+          .from('syllabus_items')
+          .select('id, syllabus_id, unit_no, title, status')
+          .eq('syllabus_id', sid)
+          .order('unit_no', { ascending: true })
+          .order('title', { ascending: true });
+        if (itErr) throw itErr;
+        setChaptersBySyllabus(prev => new Map(prev).set(sid, items || []));
+      }
+    } catch (e) {
+      messageApi.error(e?.message || 'Failed to create syllabus');
     }
-  }
+  };
 
-  async function changeChapterStatus(subject_id, syllabus_item_id, newStatus) {
-    if (!syllabus_item_id) return;
-    // optimistic in chaptersBySyllabus
-    const sid = syllabiBySubject.get(subject_id);
-    setChaptersBySyllabus(prev => {
-      const next = new Map(prev);
-      const arr = (next.get(sid) || []).map(ch => ch.id === syllabus_item_id ? { ...ch, status: newStatus } : ch);
-      next.set(sid, arr);
-      return next;
-    });
-    const { error } = await supabase
-      .from('syllabus_items')
-      .update({ status: newStatus })
-      .eq('id', syllabus_item_id);
-    if (error) messageApi.error(error.message || 'Failed to update status');
-    else messageApi.success(`Marked ${STATUS_LABEL[newStatus]}`);
-  }
-
-  // ---------- Columns ----------
+  // ---------- Columns (aligned with ViewTab) ----------
   const columns = [
     {
       title: 'Slot',
       key: 'slot',
-      width: 160,
+      width: 120,
       render: (_, r) =>
         r.slot_type === 'period'
-          ? <Text strong>#{r.slot_number}</Text>
+          ? <Text strong>Period #{r.slot_number}</Text>
           : <Tag color="gold">{r.name}</Tag>
     },
     {
       title: 'Time',
       key: 'time',
+      width: 120,
       render: (_, r) => (
         <Space size={6}>
           <ClockCircleOutlined />
@@ -268,30 +384,31 @@ export default function ManageTab({
     {
       title: 'Subject',
       key: 'subject',
+      width: 220,
       render: (_, r) => {
         if (r.slot_type === 'break') return <Text type="secondary">—</Text>;
         const a = assignmentBySlot.get(r.slot_number);
         const { clash, b } = clashWithBreakToday(r.start_time, r.end_time);
         if (clash) return <Tag icon={<StopOutlined />} color="warning">During Break: {b.name}</Tag>;
-        const name = a?.subject_id ? subjectName(a.subject_id) : null;
-        return name
-          ? <Space size={6}><BookOutlined /><span>{name}</span></Space>
-          : <Tag>Unassigned</Tag>;
+        const subjId = a ? resolveSubjectId(a) : null;
+        const name = subjId ? subjectName(subjId) : null;
+        return name ? <Space size={6}><BookOutlined /><span>{name}</span></Space> : <Tag>Unassigned</Tag>;
       }
     },
     {
       title: 'Teacher',
       key: 'teacher',
+      width: 200,
       render: (_, r) => {
         if (r.slot_type === 'break') return <Text type="secondary">—</Text>;
         const a = assignmentBySlot.get(r.slot_number);
         const { clash } = clashWithBreakToday(r.start_time, r.end_time);
         if (clash) return <Text type="secondary">—</Text>;
-        const name = a?.teacher_id ? teacherName(a.teacher_id) : null;
+        const tid = a?.teacher_id ?? a?.teacherId;
+        const name = tid ? teacherName(tid) : null;
         return name ? <Space size={6}><TeamOutlined /><span>{name}</span></Space> : <Text type="secondary">—</Text>;
       }
     },
-    // NEW: Chapter assignment
     {
       title: 'Chapter',
       key: 'chapter',
@@ -299,109 +416,33 @@ export default function ManageTab({
       render: (_, r) => {
         if (r.slot_type === 'break') return <Text type="secondary">—</Text>;
         const a = assignmentBySlot.get(r.slot_number);
-        if (!a?.subject_id) {
-          return <Text type="secondary">Assign subject to select chapter</Text>;
-        }
-        const sid = syllabiBySubject.get(a.subject_id);
-        if (!sid) {
-          return (
-            <Space>
-              <Text type="secondary">No syllabus</Text>
-              <Tooltip title="Create syllabus in Syllabus page">
-                <Button size="small" type="link" onClick={() => window.open(`/syllabus?subjectId=${a.subject_id}&classInstanceId=${classId}`, '_blank')}>Open</Button>
-              </Tooltip>
-            </Space>
-          );
-        }
-        const options = chapterOptionsForSubject(a.subject_id);
-        const value = a.syllabus_item_id || null;
-        const ch = chapterById(a.subject_id, value);
+        const subjId = a ? resolveSubjectId(a) : null;
+        const chId = a?.syllabus_item_id ?? a?.syllabusItemId;
+        if (!subjId || !chId) return <Text type="secondary">—</Text>;
+        const ch = chapterById(subjId, chId);
+        if (!ch) return <Text type="secondary">—</Text>;
         return (
-          <Space align="center" wrap>
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Select chapter"
-              options={options}
-              value={value || undefined}
-              onChange={(v) => setChapter(a, a.subject_id, v)}
-              showSearch
-              optionFilterProp="label"
-            />
-            {value ? (
-              <Tooltip title={STATUS_LABEL[ch?.status || 'pending']}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: STATUS_COLOR[ch?.status || 'pending']
-                  }}
-                />
-              </Tooltip>
-            ) : null}
+          <Space>
+            <span style={{
+              display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+              background: STATUS_COLOR[ch.status || 'pending']
+            }} />
+            <span>Chapter {ch.unit_no}: {ch.title}</span>
           </Space>
         );
       }
     },
-    // NEW: Chapter status (admin can change)
-    {
-      title: 'Chapter Status',
-      key: 'chapter_status',
-      width: 160,
-      render: (_, r) => {
-        if (r.slot_type === 'break') return <Text type="secondary">—</Text>;
-        const a = assignmentBySlot.get(r.slot_number);
-        if (!a?.subject_id || !a?.syllabus_item_id) return <Text type="secondary">—</Text>;
-        const ch = chapterById(a.subject_id, a.syllabus_item_id);
-        const status = ch?.status || 'pending';
-        const menuItems = [
-          { key: 'pending', label: 'Mark Pending' },
-          { key: 'in_progress', label: 'Mark In Progress' },
-          { key: 'completed', label: 'Mark Completed' },
-        ];
-        return (
-          <Dropdown
-            trigger={['click']}
-            menu={{ items: menuItems, onClick: ({ key }) => changeChapterStatus(a.subject_id, a.syllabus_item_id, key) }}
-          >
-            <Button size="small" icon={<MoreOutlined />}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 10, height: 10, borderRadius: '50%',
-                  background: STATUS_COLOR[status],
-                  marginRight: 8
-                }}
-              />
-              {STATUS_LABEL[status]}
-            </Button>
-          </Dropdown>
-        );
-      }
-    },
-    // NEW: Plan / description
     {
       title: 'Description',
       key: 'desc',
-      width: 340,
+      width: 360,
       render: (_, r) => {
         if (r.slot_type === 'break') return <Text type="secondary">—</Text>;
         const a = assignmentBySlot.get(r.slot_number);
-        if (!a?.id) return <Text type="secondary">—</Text>;
-        const value = a.plan_text || '';
-        return (
-          <TextArea
-            autoSize={{ minRows: 1, maxRows: 3 }}
-            placeholder="Notes for this period"
-            defaultValue={value}
-            onBlur={(e) => {
-              const v = e.target.value;
-              if (v !== value) upsertPlanText(a, v);
-            }}
-          />
-        );
+        const value = a?.plan_text ?? a?.planText ?? '';
+        return value ? value : <Text type="secondary">—</Text>;
       }
     },
-    // Existing Actions
     {
       title: 'Actions',
       key: 'actions',
@@ -416,12 +457,13 @@ export default function ManageTab({
         }
         const a = assignmentBySlot.get(r.slot_number);
         const { clash, b } = clashWithBreakToday(r.start_time, r.end_time);
+        const hasAssign = !!(a?.teacher_id || a?.teacherId || a?.subject_id || a?.subjectId);
         const btn = (
           <Button
             type="text"
-            onClick={() => onOpenAssign(r.slot_number)}
-            icon={a?.teacher_id ? <EditOutlined /> : <PlusCircleOutlined />}
-            aria-label={a?.teacher_id ? 'Edit' : 'Assign'}
+            onClick={() => openEdit(r)}
+            icon={hasAssign ? <EditOutlined /> : <PlusCircleOutlined />}
+            aria-label={hasAssign ? 'Edit' : 'Assign'}
             disabled={isHoliday || clash}
           />
         );
@@ -454,8 +496,84 @@ export default function ManageTab({
         pagination={false}
         bordered
         style={{ marginTop: 8 }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1260 }}
+        locale={{ emptyText: <Empty description="No periods/breaks configured" /> }}
       />
+
+      {/* Edit Assignment Modal */}
+      <Modal
+        title={editSlot ? `Period #${editSlot.slot_number} • ${editSlot.start_time.slice(0,5)}–${editSlot.end_time.slice(0,5)}` : 'Edit Assignment'}
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={saveEdit}
+        confirmLoading={editBusy}
+        okText="Save"
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Form
+            layout="vertical"
+            form={form}
+            initialValues={{ subject_id: undefined, teacher_id: undefined, syllabus_item_id: undefined, plan_text: '' }}
+          >
+            <Form.Item label="Subject" name="subject_id" rules={[{ required: true, message: 'Select a subject' }]}>
+              <Select
+                showSearch
+                options={(subjects || []).map(s => ({ label: s.subject_name, value: s.id }))}
+                placeholder="Select subject"
+                optionFilterProp="label"
+                onChange={() => {
+                  // Reset chapter when subject changes
+                  form.setFieldValue('syllabus_item_id', undefined);
+                }}
+              />
+            </Form.Item>
+
+            <Form.Item label="Teacher" name="teacher_id" rules={[{ required: true, message: 'Select a teacher' }]}>
+              <Select
+                showSearch
+                options={(teachers || []).map(t => ({ label: t.full_name, value: t.id }))}
+                placeholder="Select teacher"
+                optionFilterProp="label"
+              />
+            </Form.Item>
+
+            <Form.Item label="Chapter" name="syllabus_item_id">
+              <Select
+                showSearch
+                placeholder="Select chapter (optional)"
+                options={(() => {
+                  const subjId = form.getFieldValue('subject_id');
+                  return subjId ? chapterOptionsForSubject(subjId) : [];
+                })()}
+                optionFilterProp="label"
+                notFoundContent={(() => {
+                  const subjId = form.getFieldValue('subject_id');
+                  if (!subjId) return null;
+                  const hasSyl = syllabiBySubject.has(subjId);
+                  return hasSyl ? null : (
+                    <Space>
+                      <ExclamationCircleOutlined />
+                      <span>No syllabus. </span>
+                      <Button size="small" type="link" onClick={() => createSyllabus(subjId)}>Create</Button>
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => window.open(`/syllabus?subjectId=${subjId}&classInstanceId=${classId}`, '_blank')}
+                      >
+                        Open Syllabus
+                      </Button>
+                    </Space>
+                  );
+                })()}
+              />
+            </Form.Item>
+
+            <Form.Item label="Description" name="plan_text">
+              <TextArea autoSize={{ minRows: 2, maxRows: 6 }} placeholder="Notes for this period" />
+            </Form.Item>
+          </Form>
+        </Space>
+      </Modal>
     </>
   ) : (
     <Card style={{ marginTop: 12 }}><Text type="secondary">Select a class to manage its day.</Text></Card>
