@@ -87,15 +87,20 @@ const AppSidebar = () => {
         key: '/add-subjects',
         icon: <DollarOutlined />,
         label: 'Subjects',
-        roles: ['superadmin']
+        roles: ['superadmin', 'admin']
       },
       {
         key: '/add-timetable',
         icon: <DollarOutlined />,
         label: 'Timetable',
         roles: ['superadmin', 'admin']
+      },
+      {
+        key: '/syllabus',
+        icon: <DollarOutlined />,
+        label: 'Syllabus',
+        roles: ['superadmin', 'admin']
       }
-      
     ];
 
     return allItems

@@ -22,6 +22,7 @@ import AddSubjects from './components/AddSubjects';
 
 // ⬇️ NEW: use the refactored page version
 import Timetable from './pages/Timetable';
+import SyllabusPage from './components/Syllabus';
 
 const { Content } = Layout;
 
@@ -101,7 +102,6 @@ function App() {
                   <Route path="/add-school-admin" element={<PrivateRoute><AddAdmin /></PrivateRoute>} />
                   <Route path="/add-student" element={<PrivateRoute><AddStudent /></PrivateRoute>} />
                   <Route path="/add-specific-class" element={<PrivateRoute><AddSpecificClass /></PrivateRoute>} />
-                  <Route path="/add-subjects" element={<PrivateRoute><AddSubjects /></PrivateRoute>} />
                 </>
               )}
 
@@ -109,8 +109,9 @@ function App() {
               {(isSuperAdmin || isAdmin) && (
                 <>
                   <Route path="/add-timetable" element={<PrivateRoute><Timetable /></PrivateRoute>} />
-                  {/* Optional cleaner alias */}
                   <Route path="/timetable" element={<PrivateRoute><Timetable /></PrivateRoute>} />
+                  <Route path="/add-subjects" element={<PrivateRoute><AddSubjects /></PrivateRoute>} />
+                  <Route path="/syllabus" element={<PrivateRoute><SyllabusPage /></PrivateRoute>} />
                 </>
               )}
 

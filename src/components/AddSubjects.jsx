@@ -162,11 +162,13 @@ const AddSubjects = ({ canWrite: canWriteProp } = {}) => {
       <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
         Subjects (School‑wide)
       </Title>
-
+    {canWrite && (
       <Card
         style={{ marginBottom: 24 }}
         bodyStyle={{ padding: 16 }}
       >
+      
+            
         <Form
           form={form}
           layout="vertical"
@@ -203,11 +205,10 @@ const AddSubjects = ({ canWrite: canWriteProp } = {}) => {
               Add Subjects
             </Button>
           </Form.Item>
-          {!canWrite && (
-            <Text type="secondary">You have read‑only access. Ask a Super Admin to add subjects.</Text>
-          )}
         </Form>
+
       </Card>
+    )}
 
       <Card
         title={

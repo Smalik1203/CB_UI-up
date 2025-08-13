@@ -36,7 +36,7 @@ export default function CreateTab({
     await onAddSlot({ slotType: slotKind, startText, duration, breakName, breakWeekdays });
     // reset
     setStartText('');
-    if (slotKind === 'break') { setBreakName(''); setBreakTemplateId(null); setDuration(15); }
+    if (slotKind === 'break') { setBreakName(''); setBreakTemplateId(null); setDuration(60); }
   };
 
   return classId ? (
@@ -83,7 +83,7 @@ export default function CreateTab({
           />
 
           <Select value={duration} style={{ width: 140 }} onChange={setDuration}>
-            {[10, 15, 20, 25, 30, 35, 40, 45, 50, 60].map(m => <Option key={m} value={m}>{m} min</Option>)}
+            {[45, 50, 60].map(m => <Option key={m} value={m}>{m} min</Option>)}
           </Select>
 
           <Input
