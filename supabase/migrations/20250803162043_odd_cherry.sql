@@ -6,6 +6,9 @@
     - `assessment_results` - Store individual student results
     - `fee_structures` - Define fee structures for classes
     - `fee_payments` - Track student fee payments
+    - `fee_component_types` - Fee component types (Tuition, Transport, etc.)
+    - `fee_student_plans` - Individual student fee plans
+    - `fee_student_plan_items` - Items within student fee plans
     - `activity_logs` - System activity tracking
     - `user_profiles` - Extended user profile information
     - `permissions` - Role-based permissions
@@ -89,6 +92,48 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   updated_at timestamptz DEFAULT now()
 );
 
+-- Fee Component Types table (for FeeComponents.jsx)
+CREATE TABLE IF NOT EXISTS fee_component_types (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_code text NOT NULL,
+  code text NOT NULL,
+  name text NOT NULL,
+  default_amount_paise integer,
+  is_recurring boolean DEFAULT true,
+  period text DEFAULT 'annual',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT fee_component_types_school_code_code_key UNIQUE (school_code, code)
+);
+
+-- Fee Student Plans table (for FeeManage.jsx)
+CREATE TABLE IF NOT EXISTS fee_student_plans (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_code text NOT NULL,
+  student_id uuid NOT NULL,
+  class_instance_id uuid NOT NULL,
+  created_by uuid NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT fee_student_plans_student_id_class_instance_id_key UNIQUE (student_id, class_instance_id),
+  CONSTRAINT fee_student_plans_student_id_fkey FOREIGN KEY (student_id) REFERENCES student(id) ON DELETE CASCADE,
+  CONSTRAINT fee_student_plans_class_instance_id_fkey FOREIGN KEY (class_instance_id) REFERENCES class_instances(id) ON DELETE CASCADE,
+  CONSTRAINT fee_student_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- Fee Student Plan Items table (for FeeManage.jsx)
+CREATE TABLE IF NOT EXISTS fee_student_plan_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plan_id uuid NOT NULL,
+  component_type_id uuid NOT NULL,
+  amount_paise integer NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT fee_student_plan_items_plan_id_component_type_id_key UNIQUE (plan_id, component_type_id),
+  CONSTRAINT fee_student_plan_items_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES fee_student_plans(id) ON DELETE CASCADE,
+  CONSTRAINT fee_student_plan_items_component_type_id_fkey FOREIGN KEY (component_type_id) REFERENCES fee_component_types(id) ON DELETE CASCADE
+);
+
 -- Activity logs table
 CREATE TABLE IF NOT EXISTS activity_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -142,6 +187,9 @@ ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assessment_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_structures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_component_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_student_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_student_plan_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
@@ -151,71 +199,123 @@ ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view assessments from their school"
   ON assessments FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 CREATE POLICY "Teachers and admins can create assessments"
   ON assessments FOR INSERT
   TO authenticated
   WITH CHECK (
-    school_code = (auth.jwt() ->> 'school_code') AND
-    (auth.jwt() ->> 'role') IN ('superadmin', 'admin', 'teacher')
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin', 'teacher')
   );
 
 CREATE POLICY "Teachers and admins can update their assessments"
   ON assessments FOR UPDATE
   TO authenticated
   USING (
-    school_code = (auth.jwt() ->> 'school_code') AND
-    (auth.jwt() ->> 'role') IN ('superadmin', 'admin', 'teacher')
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin', 'teacher')
   );
 
 -- RLS Policies for assessment_results
 CREATE POLICY "Users can view results from their school"
   ON assessment_results FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 CREATE POLICY "Teachers and admins can manage results"
   ON assessment_results FOR ALL
   TO authenticated
   USING (
-    school_code = (auth.jwt() ->> 'school_code') AND
-    (auth.jwt() ->> 'role') IN ('superadmin', 'admin', 'teacher')
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin', 'teacher')
   );
 
 -- RLS Policies for fee_structures
 CREATE POLICY "Users can view fee structures from their school"
   ON fee_structures FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 CREATE POLICY "Admins can manage fee structures"
   ON fee_structures FOR ALL
   TO authenticated
   USING (
-    school_code = (auth.jwt() ->> 'school_code') AND
-    (auth.jwt() ->> 'role') IN ('superadmin', 'admin')
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin')
   );
 
 -- RLS Policies for fee_payments
 CREATE POLICY "Users can view fee payments from their school"
   ON fee_payments FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 CREATE POLICY "Admins can manage fee payments"
   ON fee_payments FOR ALL
   TO authenticated
   USING (
-    school_code = (auth.jwt() ->> 'school_code') AND
-    (auth.jwt() ->> 'role') IN ('superadmin', 'admin')
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin')
+  );
+
+-- RLS Policies for fee_component_types
+CREATE POLICY "Users can view fee components from their school"
+  ON fee_component_types FOR SELECT
+  TO authenticated
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
+
+CREATE POLICY "Admins can manage fee components"
+  ON fee_component_types FOR ALL
+  TO authenticated
+  USING (
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin')
+  );
+
+-- RLS Policies for fee_student_plans
+CREATE POLICY "Users can view student plans from their school"
+  ON fee_student_plans FOR SELECT
+  TO authenticated
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
+
+CREATE POLICY "Admins can manage student plans"
+  ON fee_student_plans FOR ALL
+  TO authenticated
+  USING (
+    school_code = (SELECT school_code FROM users WHERE id = auth.uid()) AND
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin')
+  );
+
+-- RLS Policies for fee_student_plan_items
+CREATE POLICY "Users can view plan items from their school"
+  ON fee_student_plan_items FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM fee_student_plans fsp 
+      WHERE fsp.id = fee_student_plan_items.plan_id 
+      AND fsp.school_code = (SELECT school_code FROM users WHERE id = auth.uid())
+    )
+  );
+
+CREATE POLICY "Admins can manage plan items"
+  ON fee_student_plan_items FOR ALL
+  TO authenticated
+  USING (
+    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin') AND
+    EXISTS (
+      SELECT 1 FROM fee_student_plans fsp 
+      WHERE fsp.id = fee_student_plan_items.plan_id 
+      AND fsp.school_code = (SELECT school_code FROM users WHERE id = auth.uid())
+    )
   );
 
 -- RLS Policies for activity_logs
 CREATE POLICY "Users can view activity logs from their school"
   ON activity_logs FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 CREATE POLICY "All authenticated users can create activity logs"
   ON activity_logs FOR INSERT
@@ -243,7 +343,7 @@ CREATE POLICY "All authenticated users can view permissions"
 CREATE POLICY "Users can view role permissions from their school"
   ON role_permissions FOR SELECT
   TO authenticated
-  USING (school_code = (auth.jwt() ->> 'school_code'));
+  USING (school_code = (SELECT school_code FROM users WHERE id = auth.uid()));
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_assessments_school_code ON assessments(school_code);
@@ -264,6 +364,14 @@ CREATE INDEX IF NOT EXISTS idx_fee_payments_fee_structure ON fee_payments(fee_st
 CREATE INDEX IF NOT EXISTS idx_fee_payments_school_code ON fee_payments(school_code);
 CREATE INDEX IF NOT EXISTS idx_fee_payments_status ON fee_payments(status);
 CREATE INDEX IF NOT EXISTS idx_fee_payments_due_date ON fee_payments(due_date);
+
+CREATE INDEX IF NOT EXISTS idx_fee_component_types_school_code ON fee_component_types(school_code);
+CREATE INDEX IF NOT EXISTS idx_fee_component_types_code ON fee_component_types(code);
+CREATE INDEX IF NOT EXISTS idx_fee_student_plans_school_code ON fee_student_plans(school_code);
+CREATE INDEX IF NOT EXISTS idx_fee_student_plans_student_id ON fee_student_plans(student_id);
+CREATE INDEX IF NOT EXISTS idx_fee_student_plans_class_instance_id ON fee_student_plans(class_instance_id);
+CREATE INDEX IF NOT EXISTS idx_fee_student_plan_items_plan_id ON fee_student_plan_items(plan_id);
+CREATE INDEX IF NOT EXISTS idx_fee_student_plan_items_component_type_id ON fee_student_plan_items(component_type_id);
 
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_school_code ON activity_logs(school_code);
@@ -351,7 +459,7 @@ BEGIN
     p_entity_type,
     p_entity_id,
     p_metadata,
-    (auth.jwt() ->> 'school_code')
+    (SELECT school_code FROM users WHERE id = auth.uid())
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

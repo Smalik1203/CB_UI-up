@@ -23,7 +23,6 @@ const Login = () => {
     setError(null);
 
     try {
-      // TODO: Replace with actual Supabase authentication
       const { error } = await supabase.auth.signInWithPassword({
         email: values.email,
         password: values.password,

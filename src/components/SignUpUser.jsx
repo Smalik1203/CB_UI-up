@@ -51,20 +51,30 @@ const SignUpUser = () => {
       setLoading(false);
     }
 
-    const {data: userData, error: userError} = await supabase.auth.getUser();
-    console.log(userData);
-
-    // insert this user into cb admin table
-    const {error: insertError} = await supabase.from('cb_admin').insert({
-      id: userData.user.id,
-      email: userData.user.email,
-      full_name: userData.user.user_metadata.full_name,
-      phone: userData.user.user_metadata.phone,
-      role: userData.user.user_metadata.role,
-      cb_admin_code: userData.user.user_metadata.cb_admin_code,
+    // Note: This code runs after signup but before email confirmation
+    // The user might not be immediately available
+    try {
+      const {data: userData, error: userError} = await supabase.auth.getUser();
+      if (userData?.user) {
+        console.log('User data after signup:', userData);
+        
+        // insert this user into cb admin table
+        const {error: insertError} = await supabase.from('cb_admin').insert({
+          id: userData.user.id,
+          email: userData.user.email,
+          full_name: userData.user.user_metadata?.full_name,
+          phone: userData.user.user_metadata?.phone,
+          role: userData.user.user_metadata?.role,
+          cb_admin_code: userData.user.user_metadata?.cb_admin_code,
+        });
+        
+        if (insertError) {
+          console.error('Error inserting into cb_admin:', insertError);
+        }
+      }
+    } catch (err) {
+      console.error('Error getting user data after signup:', err);
     }
-  );
-
   };
 
   return (

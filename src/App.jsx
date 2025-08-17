@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { Layout, ConfigProvider } from 'antd';
+import { antdTheme } from './ui/theme';
 import { useAuth } from './AuthProvider';
 import Login from './pages/Login';
 import SignUpUser from './components/SignUpUser';
@@ -15,10 +16,13 @@ import SetupSchool from './pages/SetupSchool';
 import AddAdmin from './components/AddAdmin';
 import AddStudent from './components/AddStudent';
 import AppSidebar from './components/Sidebar';
-import AdminDashboard from './pages/admin/AdminDashboard';
 import AddSpecificClass from './components/AddSpecificClass';
 import AddSuperAdmin from './components/AddSuperAdmin';
 import AddSubjects from './components/AddSubjects';
+import FeeComponents from './components/FeeComponents';
+import FeeManage from './components/FeeManage';
+
+
 
 // ⬇️ NEW: use the refactored page version
 import Timetable from './pages/Timetable';
@@ -53,28 +57,7 @@ function App() {
   const isStudent = user?.app_metadata?.role === 'student';
 
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: '#6366f1',
-          colorSuccess: '#10b981',
-          colorWarning: '#f59e0b',
-          colorError: '#ef4444',
-          colorInfo: '#3b82f6',
-          borderRadius: 8,
-          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          colorBgContainer: '#ffffff',
-          colorBgElevated: '#ffffff',
-          colorBgLayout: '#f8fafc',
-          colorText: '#1e293b',
-          colorTextSecondary: '#64748b',
-          colorBorder: '#e2e8f0',
-          colorBorderSecondary: '#f1f5f9',
-          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-          boxShadowSecondary: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        },
-      }}
-    >
+    <ConfigProvider theme={antdTheme}>
       <Router>
         {user && (
           <AppLayout

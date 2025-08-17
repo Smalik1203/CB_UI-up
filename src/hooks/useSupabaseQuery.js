@@ -69,7 +69,13 @@ export const useSupabaseQuery = (table, options = {}) => {
     fetchData();
   }, [table, JSON.stringify(filters), JSON.stringify(orderBy), limit, single, enabled, user]);
 
-  return { data, loading, error, refetch: () => fetchData() };
+  const refetch = () => {
+    if (enabled && user) {
+      fetchData();
+    }
+  };
+
+  return { data, loading, error, refetch };
 };
 
 /**

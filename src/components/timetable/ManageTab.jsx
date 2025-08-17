@@ -1,7 +1,8 @@
+// src/components/timetable/ManageTab.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Card, Table, Tag, Typography, Space, Button, Popconfirm, Tooltip,
-  message, Drawer, Form, Select, Input, TimePicker, InputNumber, Empty, Modal, DatePicker, Checkbox, Radio
+  Card, Table, Tag, Typography, Space, Button, Popconfirm,
+  message, Drawer, Form, Select, Input, InputNumber, Empty, Modal, DatePicker, Checkbox, Radio
 } from 'antd';
 import {
   ClockCircleOutlined, BookOutlined, TeamOutlined, EditOutlined,
@@ -16,6 +17,7 @@ const { TextArea } = Input;
 const STATUS_COLOR = { pending: '#9CA3AF', in_progress: '#F59E0B', completed: '#16A34A' };
 const DURATION_OPTIONS = [30, 35, 40, 45, 50, 60];
 
+/* ---------- Time helpers ---------- */
 function toMin(hhmm) {
   if (!hhmm) return 0;
   const [h, m] = String(hhmm).split(':').map(n => parseInt(n, 10));
@@ -30,19 +32,84 @@ function fromMin(min) {
 }
 function overlap(a1, a2, b1, b2) { return Math.max(a1, b1) < Math.min(a2, b2); }
 
+/**
+ * parseWorkdayTime:
+ * Accepts inputs like "930", "9:30", "9.30", "9a", "2p", "12p", "12a", "13", "1330"
+ * Returns { ok: true, d: dayjs, hhmmss: "HH:mm:00" } OR { ok: false, msg }
+ */
+function parseWorkdayTime(raw) {
+  if (raw == null) return { ok: false, msg: 'Time required' };
+  let s = String(raw).trim().toLowerCase();
+  if (!s) return { ok: false, msg: 'Time required' };
+
+  // detect am/pm
+  const hasAm = /a/.test(s);
+  const hasPm = /p/.test(s);
+  // keep digits
+  const digits = (s.match(/\d+/g) || []).join('');
+  if (!digits) return { ok: false, msg: 'Invalid time' };
+
+  let h = 0, m = 0;
+  if (digits.length <= 2) {
+    // "9" or "09" -> 9:00
+    h = parseInt(digits, 10);
+    m = 0;
+  } else if (digits.length === 3) {
+    // "930" -> 9:30
+    h = parseInt(digits.slice(0, 1), 10);
+    m = parseInt(digits.slice(1), 10);
+  } else {
+    // take last 2 as minutes, rest as hour: "1230" -> 12:30, "0830" -> 08:30
+    const mm = digits.slice(-2);
+    const hh = digits.slice(0, -2);
+    h = parseInt(hh, 10);
+    m = parseInt(mm, 10);
+  }
+
+  if (Number.isNaN(h) || Number.isNaN(m)) return { ok: false, msg: 'Invalid time' };
+  if (m < 0 || m > 59) return { ok: false, msg: 'Minutes must be 00–59' };
+
+  // 12h adjustment when am/pm present
+  if (hasAm || hasPm) {
+    h = h % 12; // 12 -> 0 first
+    if (hasPm) h += 12; // 1p -> 13, 12p -> 12 (since h was 0 after % 12, then +12 = 12)
+  }
+  if (h < 0 || h > 23) return { ok: false, msg: 'Hour must be 0–23' };
+
+  const hh = String(h).padStart(2, '0');
+  const mm = String(m).padStart(2, '0');
+  const hhmmss = `${hh}:${mm}:00`;
+  const d = dayjs(hhmmss, 'HH:mm:ss', true);
+  if (!d.isValid()) return { ok: false, msg: 'Invalid time' };
+  return { ok: true, d, hhmmss };
+}
+
+/* A compact, mobile-friendly "workday" time input */
+function SmartTimeInput({ value, onChange, placeholder = 'e.g., 930 / 2p', width = 140 }) {
+  return (
+    <Input
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+      placeholder={placeholder}
+      style={{ width }}
+      allowClear
+    />
+  );
+}
+
 export default function ManageTab({
   classId,
   date,                    // dayjs
   subjects = [],
   teachers = [],
-  daySlots = [],           // timetable_slots of that date
+  daySlots = [],           // timetable_slots for that date
   chaptersById = new Map(),
   refreshDay,              // () => void
 }) {
   const [msg, ctx] = message.useMessage();
   const dateStr = useMemo(() => date.format('YYYY-MM-DD'), [date]);
 
-  // me (for created_by)
+  // me (for created_by/school_code)
   const [me, setMe] = useState(null);
   useEffect(() => { (async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -63,21 +130,24 @@ export default function ManageTab({
     }).map(r => ({ key: r.id, ...r }));
   }, [daySlots]);
 
-  /** ---------- Compact Drawer for Add/Edit ---------- **/
+  /** ---------- Drawer (Add/Edit) ---------- **/
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerBusy, setDrawerBusy] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
   const [duration, setDuration] = useState(40); // minutes
 
-  // compute a good "next gap" start/end suggestion
+  // Smart time strings (workday text input)
+  const [startStr, setStartStr] = useState('');
+  const [endStr, setEndStr] = useState('');
+
+  // compute a good "next gap"
   const suggestNextTime = () => {
     const sorted = [...(daySlots || [])].sort((a,b) => (a.start_time > b.start_time ? 1 : -1));
     const last = sorted.filter(s => s.end_time).slice(-1)[0];
     const nowStart = last ? toMin(last.end_time) : toMin('09:00:00');
     const nowEnd = nowStart + duration;
     return { start: fromMin(nowStart), end: fromMin(nowEnd) };
-    // note: UI will still validate overlap if user changes duration
   };
 
   const openAdd = (type) => {
@@ -85,12 +155,12 @@ export default function ManageTab({
     form.resetFields();
     const nextNo = (daySlots.reduce((m, it) => Math.max(m, it.period_number || 0), 0) || 0) + 1;
     const s = suggestNextTime();
+    setStartStr(s.start.slice(0,5)); // "HH:mm"
+    setEndStr(s.end.slice(0,5));
     form.setFieldsValue({
       slot_type: type,
       period_number: nextNo,
       name: type === 'break' ? 'Break' : undefined,
-      start: dayjs(s.start, 'HH:mm:ss'),
-      end: dayjs(s.end, 'HH:mm:ss'),
       subject_id: undefined,
       teacher_id: undefined,
       syllabus_item_id: undefined,
@@ -101,12 +171,12 @@ export default function ManageTab({
 
   const openEdit = (row) => {
     setEditing(row);
+    setStartStr(String(row.start_time || '').slice(0,5));
+    setEndStr(String(row.end_time || '').slice(0,5));
     form.setFieldsValue({
       slot_type: row.slot_type || 'period',
       period_number: row.period_number,
       name: row.name || undefined,
-      start: row.start_time ? dayjs(row.start_time, 'HH:mm:ss') : undefined,
-      end: row.end_time ? dayjs(row.end_time, 'HH:mm:ss') : undefined,
       subject_id: row.subject_id || undefined,
       teacher_id: row.teacher_id || undefined,
       syllabus_item_id: row.syllabus_item_id || undefined,
@@ -115,7 +185,7 @@ export default function ManageTab({
     setDrawerOpen(true);
   };
 
-  // chapters options – lazy load when subject changes
+  // Chapters (subject dependent)
   const [chaptersLoading, setChaptersLoading] = useState(false);
   const [chapterOptions, setChapterOptions] = useState([]);
   const loadChapterOptions = async (subject_id) => {
@@ -133,39 +203,67 @@ export default function ManageTab({
     } finally { setChaptersLoading(false); }
   };
 
-  // auto-update end when duration changes
-  const withAutoEnd = () => {
-    const start = form.getFieldValue('start');
-    if (start && dayjs.isDayjs(start)) {
-      const sMin = toMin(start.format('HH:mm:ss'));
+  // When duration or start changes, recompute end (like “workday” behavior)
+  useEffect(() => {
+    const p = parseWorkdayTime(startStr);
+    if (p.ok) {
+      const sMin = toMin(p.hhmmss);
       const e = fromMin(sMin + Number(duration || 0));
-      form.setFieldValue('end', dayjs(e, 'HH:mm:ss'));
+      setEndStr(e.slice(0,5));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duration]);
+
+  const onStartChange = (val) => {
+    setStartStr(val);
+    const p = parseWorkdayTime(val);
+    if (p.ok) {
+      const sMin = toMin(p.hhmmss);
+      const e = fromMin(sMin + Number(duration || 0));
+      setEndStr(e.slice(0,5));
+    }
+  };
+
+  const clickUseNextGap = () => {
+    const s = suggestNextTime();
+    setStartStr(s.start.slice(0,5));
+    setEndStr(s.end.slice(0,5));
   };
 
   const saveSlot = async () => {
     try {
       const v = await form.validateFields();
-      const start = v.start; const end = v.end;
-      if (!start || !end || !dayjs.isDayjs(start) || !dayjs.isDayjs(end)) {
-        msg.error('Start and End time required'); return;
-      }
-      if (end.isSameOrBefore(start)) {
-        msg.error('End time must be after Start time'); return;
+
+      // parse start/end strings
+      const ps = parseWorkdayTime(startStr);
+      const pe = parseWorkdayTime(endStr);
+      if (!ps.ok) { msg.error(`Start: ${ps.msg}`); return; }
+      if (!pe.ok) { msg.error(`End: ${pe.msg}`); return; }
+
+      if (pe.d.valueOf() <= ps.d.valueOf()) {
+        msg.error('End time must be after Start time');
+        return;
       }
 
-      // overlap check (simple, same date/class)
-      const ns = start.format('HH:mm:ss'), ne = end.format('HH:mm:ss');
+      // overlap check (same date/class)
+      const ns = ps.hhmmss, ne = pe.hhmmss;
       const sMin = toMin(ns), eMin = toMin(ne);
       const currentId = editing?.id;
       for (const r of daySlots) {
         if (currentId && r.id === currentId) continue;
         if (overlap(sMin, eMin, toMin(r.start_time), toMin(r.end_time))) {
-          msg.error('Time overlaps an existing slot'); return;
+          msg.error('Time overlaps an existing slot');
+          return;
         }
       }
 
+      if (!me?.school_code || !me?.id) {
+        msg.error('User context missing. Re-login.');
+        return;
+      }
+
       const payload = {
+        school_code: me.school_code,
         class_instance_id: classId,
         class_date: dateStr,
         period_number: Number(v.period_number),
@@ -178,7 +276,7 @@ export default function ManageTab({
         syllabus_item_id: v.slot_type === 'period' ? (v.syllabus_item_id || null) : null,
         plan_text: v.slot_type === 'period' ? (v.plan_text || null) : null,
         status: 'planned',
-        created_by: me?.id || null,
+        created_by: me.id,
       };
 
       setDrawerBusy(true);
@@ -196,7 +294,7 @@ export default function ManageTab({
       setDrawerOpen(false);
       refreshDay?.();
     } catch (e) {
-      if (e?.errorFields) return;
+      if (e?.errorFields) return; // form validation errors already displayed
       msg.error(e?.message || 'Save failed');
     } finally { setDrawerBusy(false); }
   };
@@ -237,7 +335,7 @@ export default function ManageTab({
       const { data: srcRows, error: sErr } = await supabase
         .from('timetable_slots')
         .select(`
-          id, class_instance_id, class_date, period_number,
+          id, school_code, class_instance_id, class_date, period_number,
           slot_type, name, start_time, end_time,
           subject_id, teacher_id, syllabus_item_id, plan_text, status
         `)
@@ -262,6 +360,7 @@ export default function ManageTab({
 
       // 2) upsert rows for target date
       const payloads = rows.map(r => ({
+        school_code: me?.school_code || r.school_code,
         class_instance_id: classId,
         class_date: dateStr,
         period_number: r.period_number,
@@ -274,10 +373,9 @@ export default function ManageTab({
         syllabus_item_id: r.slot_type === 'period' ? r.syllabus_item_id : null,
         plan_text: r.slot_type === 'period' ? r.plan_text : null,
         status: r.status || 'planned',
-        created_by: me?.id || null,
+        created_by: me?.id || r.created_by || null,
       }));
 
-      // Merge: we let onConflict update existing with source
       const { error: upErr } = await supabase
         .from('timetable_slots')
         .upsert(payloads, { onConflict: 'class_instance_id,class_date,period_number' });
@@ -304,7 +402,7 @@ export default function ManageTab({
       }
     },
     {
-      title: 'Time', key: 'time', width: 140,
+      title: 'Time', key: 'time', width: 160,
       render: (_, r) => (<Space size={6}><ClockCircleOutlined /><span>{String(r.start_time).slice(0,5)}–{String(r.end_time).slice(0,5)}</span></Space>)
     },
     {
@@ -419,26 +517,23 @@ export default function ManageTab({
               </Form.Item>
             </Space>
 
-            {/* Time row: Start | Duration | End + Quick Next */}
+            {/* Time row: Start | Duration | End + Quick Next (Workday inputs) */}
             <Space wrap align="end">
-              <Form.Item label="Start" name="start" rules={[{ required: true }]} style={{ minWidth: 180 }}>
-                <TimePicker format="HH:mm" style={{ width: 140 }} onChange={withAutoEnd} />
+              <Form.Item label="Start" required style={{ minWidth: 180 }}>
+                <SmartTimeInput value={startStr} onChange={onStartChange} placeholder="e.g., 930 / 2p" />
               </Form.Item>
               <Form.Item label="Duration (min)" style={{ minWidth: 160 }}>
                 <Select
                   style={{ width: 140 }}
                   value={duration}
-                  onChange={(v) => { setDuration(v); withAutoEnd(); }}
+                  onChange={(v) => setDuration(v)}
                   options={DURATION_OPTIONS.map(x => ({ value: x, label: `${x}` }))}
                 />
               </Form.Item>
-              <Form.Item label="End" name="end" rules={[{ required: true }]} style={{ minWidth: 180 }}>
-                <TimePicker format="HH:mm" style={{ width: 140 }} />
+              <Form.Item label="End" required style={{ minWidth: 180 }}>
+                <SmartTimeInput value={endStr} onChange={setEndStr} placeholder="auto or edit" />
               </Form.Item>
-              <Button onClick={() => {
-                const s = suggestNextTime();
-                form.setFieldsValue({ start: dayjs(s.start, 'HH:mm:ss'), end: dayjs(s.end, 'HH:mm:ss') });
-              }}>Use next gap</Button>
+              <Button onClick={clickUseNextGap}>Use next gap</Button>
             </Space>
 
             {/* Break-only */}
