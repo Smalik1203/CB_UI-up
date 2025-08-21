@@ -1,5 +1,6 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import {useAuth} from "../AuthProvider"
+import { getUserRole } from "../routeAccess";
 
 /**
  * PRIVATE ROUTE COMPONENT - Route Protection System
@@ -24,8 +25,9 @@ import {useAuth} from "../AuthProvider"
  * - Implement graceful error handling
  * - Add loading states for better UX
  */
-const PrivateRoute = ({children}) => {
+const PrivateRoute = ({children, allowedRoles}) => {
     const {user, loading} = useAuth();
+    const location = useLocation();
 
     /**
      * LOADING STATE HANDLING
@@ -59,7 +61,15 @@ const PrivateRoute = ({children}) => {
      *   return <Navigate to="/unauthorized" replace />;
      * }
      */
-    if(!user) return <Navigate to="/" />;
+    if(!user) return <Navigate to="/" replace state={{ from: location }} />;
+
+    // Role-based authorization
+    if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
+        const role = getUserRole(user);
+        if (!role || !allowedRoles.includes(role)) {
+            return <Navigate to="/unauthorized" replace state={{ from: location }} />;
+        }
+    }
     
     /**
      * RENDER PROTECTED CONTENT

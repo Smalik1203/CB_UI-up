@@ -29,6 +29,8 @@ import FeeCollections from './components/FeeCollections';
 // ⬇️ NEW: use the refactored page version
 import Timetable from './pages/Timetable';
 import SyllabusPage from './components/Syllabus';
+import Unauthorized from './pages/Unauthorized';
+import { routeAccess } from './routeAccess';
 
 const { Content } = Layout;
 
@@ -71,44 +73,32 @@ function App() {
             <Routes>
               {/* Logged-in routes */}
               <Route path="/" element={<Login />} />
-              <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+              <Route path="/dashboard" element={<PrivateRoute allowedRoles={routeAccess.dashboard}><Dashboard /></PrivateRoute>} />
               <Route path="*" element={<Navigate to="/dashboard" />} />
 
-              {isCbAdmin && (
-                <>
-                  <Route path="/add-schools" element={<PrivateRoute><AddSchools /></PrivateRoute>} />
-                  <Route path="/add-super-admin" element={<PrivateRoute><AddSuperAdmin /></PrivateRoute>} />
-                </>
-              )}
+              <Route path="/add-schools" element={<PrivateRoute allowedRoles={routeAccess.addSchools}><AddSchools /></PrivateRoute>} />
+              <Route path="/add-super-admin" element={<PrivateRoute allowedRoles={routeAccess.addSuperAdmin}><AddSuperAdmin /></PrivateRoute>} />
 
-              {isSuperAdmin && (
-                <>
-                  <Route path="/school-setup" element={<PrivateRoute><SetupSchool /></PrivateRoute>} />
-                  <Route path="/add-school-admin" element={<PrivateRoute><AddAdmin /></PrivateRoute>} />
-                  <Route path="/add-student" element={<PrivateRoute><AddStudent /></PrivateRoute>} />
-                  <Route path="/add-specific-class" element={<PrivateRoute><AddSpecificClass /></PrivateRoute>} />
-                </>
-              )}
+              <Route path="/school-setup" element={<PrivateRoute allowedRoles={routeAccess.schoolSetup}><SetupSchool /></PrivateRoute>} />
+              <Route path="/add-school-admin" element={<PrivateRoute allowedRoles={routeAccess.addSchoolAdmin}><AddAdmin /></PrivateRoute>} />
+              <Route path="/add-student" element={<PrivateRoute allowedRoles={routeAccess.addStudent}><AddStudent /></PrivateRoute>} />
+              <Route path="/add-specific-class" element={<PrivateRoute allowedRoles={routeAccess.addSpecificClass}><AddSpecificClass /></PrivateRoute>} />
 
-              {/* New timetable page — allow both Admin & SuperAdmin */}
-              {(isSuperAdmin || isAdmin) && (
-                <>
-                  <Route path="/add-timetable" element={<PrivateRoute><Timetable /></PrivateRoute>} />
-                  <Route path="/timetable" element={<PrivateRoute><Timetable /></PrivateRoute>} />
-                  <Route path="/add-subjects" element={<PrivateRoute><AddSubjects /></PrivateRoute>} />
-                  <Route path="/syllabus" element={<PrivateRoute><SyllabusPage /></PrivateRoute>} />
-                </>
-              )}
+              {/* Timetable & syllabus */}
+              <Route path="/add-timetable" element={<PrivateRoute allowedRoles={routeAccess.addTimetable}><Timetable /></PrivateRoute>} />
+              <Route path="/timetable" element={<PrivateRoute allowedRoles={routeAccess.timetable}><Timetable /></PrivateRoute>} />
+              <Route path="/add-subjects" element={<PrivateRoute allowedRoles={routeAccess.addSubjects}><AddSubjects /></PrivateRoute>} />
+              <Route path="/syllabus" element={<PrivateRoute allowedRoles={routeAccess.syllabus}><SyllabusPage /></PrivateRoute>} />
 
-              <Route path="/signup" element={<PrivateRoute><SignUpUser /></PrivateRoute>} />
-              <Route path="/assessments" element={<PrivateRoute><Assessments /></PrivateRoute>} />
-              <Route path="/attendance" element={<PrivateRoute><Attendance /></PrivateRoute>} />
-              <Route path="/fees" element={<PrivateRoute><Fees /></PrivateRoute>} />
-              <Route path="/fee-manage" element={<PrivateRoute><FeeManage /></PrivateRoute>} />
-              <Route path="/fee-collections" element={<PrivateRoute><FeeCollections /></PrivateRoute>} />
+              <Route path="/signup" element={<PrivateRoute allowedRoles={routeAccess.signup}><SignUpUser /></PrivateRoute>} />
+              <Route path="/assessments" element={<PrivateRoute allowedRoles={routeAccess.assessments}><Assessments /></PrivateRoute>} />
+              <Route path="/attendance" element={<PrivateRoute allowedRoles={routeAccess.attendance}><Attendance /></PrivateRoute>} />
+              <Route path="/fees" element={<PrivateRoute allowedRoles={routeAccess.fees}><Fees /></PrivateRoute>} />
+              <Route path="/fee-manage" element={<PrivateRoute allowedRoles={routeAccess.feeManage}><FeeManage /></PrivateRoute>} />
+              <Route path="/fee-collections" element={<PrivateRoute allowedRoles={routeAccess.feeCollections}><FeeCollections /></PrivateRoute>} />
               {/* /assignments route removed */}
-              <Route path="/results" element={<PrivateRoute><Results /></PrivateRoute>} />
-              <Route path="/school-setup" element={<PrivateRoute><SetupSchool /></PrivateRoute>} />
+              <Route path="/results" element={<PrivateRoute allowedRoles={routeAccess.results}><Results /></PrivateRoute>} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
             </Routes>
           </AppLayout>
         )}
