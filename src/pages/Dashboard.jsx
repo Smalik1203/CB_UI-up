@@ -86,14 +86,14 @@ const Dashboard = () => {
       ],
       'admin': [
         { title: 'Mark Attendance', description: 'Daily attendance management', color: '#1890ff' },
-        { title: 'Grade Assignments', description: 'Review and grade submissions', color: '#52c41a' },
+        
         { title: 'View Students', description: 'Student information and progress', color: '#722ed1' },
         { title: 'Generate Reports', description: 'Class performance reports', color: '#fa8c16' }
       ],
       'student': [
         { title: 'View Grades', description: 'Check your academic scores', color: '#1890ff' },
         { title: 'Attendance', description: 'Track your attendance record', color: '#52c41a' },
-        { title: 'Assignments', description: 'View pending assignments', color: '#722ed1' },
+        
         { title: 'Schedule', description: 'Class timetable and events', color: '#fa8c16' }
       ],
       'parent': [

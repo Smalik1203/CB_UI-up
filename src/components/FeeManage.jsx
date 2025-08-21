@@ -4,7 +4,7 @@ import {
   Card, Table, Space, Button, Typography, Select, Drawer,
   Row, Col, message, Empty, InputNumber, Spin, Alert, Tooltip, Divider
 } from "antd";
-import { EditOutlined, PlusOutlined, TeamOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
+import { EditOutlined, PlusOutlined, TeamOutlined, ExclamationCircleOutlined, DollarOutlined } from "@ant-design/icons";
 import { supabase } from "../config/supabaseClient";
 import { Page, EmptyState } from "../ui";
 import { fmtINR, toPaise } from "../utils/money";
@@ -57,6 +57,8 @@ export default function FeeManage() {
     items: [] // [{ component_type_id, amount_inr }]
   });
   const [savingClass, setSavingClass] = useState(false);
+
+
 
   // ---------- bootstrap ----------
   useEffect(() => {
@@ -533,6 +535,7 @@ export default function FeeManage() {
               Class Plan
             </Button>
           </Tooltip>
+
         </Space>
       }
     >
@@ -728,6 +731,8 @@ export default function FeeManage() {
           Tip: Components with default amounts (if defined) are pre-loaded. You can still add, remove, or change them here.
         </Text>
       </Drawer>
+
+
       
     </Page>
   );

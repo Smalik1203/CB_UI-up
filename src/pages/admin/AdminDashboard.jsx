@@ -47,13 +47,13 @@ const AdminDashboard = () => {
    * - My Classes: SELECT COUNT(*) FROM class_instances WHERE class_teacher_id = user.id
    * - Students: SELECT COUNT(*) FROM students s JOIN class_instances ci ON s.class_instance_id = ci.id WHERE ci.class_teacher_id = user.id
    * - Attendance: SELECT AVG(attendance_percentage) FROM attendance_summary WHERE class_teacher_id = user.id AND date >= current_month
-   * - Assignments: SELECT COUNT(*) FROM assignments WHERE created_by = user.id AND status = 'active'
+   * - [removed] Assignments related queries
    */
   const stats = [
     { label: 'My Classes', value: '6', icon: BookOpen, color: 'blue' },
     { label: 'Students', value: '180', icon: Users, color: 'green' },
     { label: 'Attendance', value: '92%', icon: Calendar, color: 'purple' },
-    { label: 'Assignments', value: '24', icon: Trophy, color: 'orange' }
+    
   ];
 
   return (
@@ -239,33 +239,7 @@ const AdminDashboard = () => {
                 </p>
               </div>
             </div>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '12px', 
-              padding: '12px', 
-              background: '#f8fafc', 
-              borderRadius: '12px'
-            }}>
-              <Clock style={{ width: '20px', height: '20px', color: '#10b981' }} />
-              <div>
-                <p style={{ 
-                  color: '#1e293b', 
-                  fontSize: '14px', 
-                  fontWeight: 500,
-                  margin: 0
-                }}>
-                  Assignment Graded
-                </p>
-                <p style={{ 
-                  color: '#64748b', 
-                  fontSize: '12px',
-                  margin: 0
-                }}>
-                  Math homework reviewed • 4 hours ago
-                </p>
-              </div>
-            </div>
+            
             <div style={{ 
               display: 'flex', 
               alignItems: 'center', 

@@ -21,6 +21,8 @@ import AddSuperAdmin from './components/AddSuperAdmin';
 import AddSubjects from './components/AddSubjects';
 import FeeComponents from './components/FeeComponents';
 import FeeManage from './components/FeeManage';
+import FeeCollections from './components/FeeCollections';
+// Assignment feature removed
 
 
 
@@ -102,6 +104,9 @@ function App() {
               <Route path="/assessments" element={<PrivateRoute><Assessments /></PrivateRoute>} />
               <Route path="/attendance" element={<PrivateRoute><Attendance /></PrivateRoute>} />
               <Route path="/fees" element={<PrivateRoute><Fees /></PrivateRoute>} />
+              <Route path="/fee-manage" element={<PrivateRoute><FeeManage /></PrivateRoute>} />
+              <Route path="/fee-collections" element={<PrivateRoute><FeeCollections /></PrivateRoute>} />
+              {/* /assignments route removed */}
               <Route path="/results" element={<PrivateRoute><Results /></PrivateRoute>} />
               <Route path="/school-setup" element={<PrivateRoute><SetupSchool /></PrivateRoute>} />
             </Routes>

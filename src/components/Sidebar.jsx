@@ -5,7 +5,6 @@ import { supabase } from '../config/supabaseClient';
 import { Layout, Menu, Avatar, Typography, Button, Dropdown, Space, Tooltip } from 'antd';
 import {
   HomeOutlined,
-  ReadOutlined,
   TeamOutlined,
   CalendarOutlined,
   BookOutlined,
@@ -47,6 +46,7 @@ const AppSidebar = () => {
         label: 'Home',
         roles: ['cb_admin', 'superadmin', 'admin', 'teacher', 'student', 'parent']
       },
+      // Assignments menu removed
       {
         key: '/add-schools',
         icon: <BankOutlined />,
@@ -82,6 +82,18 @@ const AppSidebar = () => {
         icon: <DollarOutlined />,
         label: 'Fees',
         roles: ['superadmin', 'admin', 'student', 'parent']
+      },
+      {
+        key: '/fee-manage',
+        icon: <DollarOutlined />,
+        label: 'Fee Management',
+        roles: ['superadmin', 'admin']
+      },
+      {
+        key: '/fee-collections',
+        icon: <DollarOutlined />,
+        label: 'Fee Collections',
+        roles: ['superadmin', 'admin']
       },
       {
         key: '/add-subjects',
