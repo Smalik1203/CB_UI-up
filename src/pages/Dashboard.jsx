@@ -35,6 +35,8 @@ const { Title, Text } = Typography;
 
 const Dashboard = () => {
   const { user } = useAuth();
+  console.log('Users data : ', user);
+  
   
   const role = user?.app_metadata?.role;
   const userName = user?.user_metadata?.full_name || 'User';

@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/charts": "^2.6.2",
     "@ant-design/icons": "^6.0.0",
     "@supabase/supabase-js": "^2.53.0",
     "@tailwindcss/vite": "^4.1.11",
@@ -22,6 +23,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.7.0",
+    "recharts": "^3.1.2",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.11",
     "xlsx": "^0.18.5"
